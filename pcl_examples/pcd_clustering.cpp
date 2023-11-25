@@ -9,6 +9,7 @@
 //specific processing libraries
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/passthrough.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/sample_consensus/method_types.h>
@@ -30,36 +31,49 @@ int main()
 
   std::cout<<"Source Cloud Points "<< raw_cloud->width * raw_cloud->height<< std::endl;
 
-  // START of Filtering (1-Voxelization, ...)
-  pcl::PointCloud<PointT>::Ptr cloud_voxel (new pcl::PointCloud<PointT>); //filtered cloud
 
+
+
+
+  // START of Filtering (1-Voxelization,2-Passthrough,3-Outliers ...)
+  pcl::PointCloud<PointT>::Ptr cloud (new pcl::PointCloud<PointT>); //filtered cloud 
+
+  // 1-VOXELIZE
   pcl::VoxelGrid<PointT> voxel_filter;
   voxel_filter.setInputCloud(raw_cloud);
   voxel_filter.setLeafSize(1,1,1);
-  voxel_filter.filter(*cloud_voxel);
+  voxel_filter.filter(*cloud);
+  *raw_cloud = *cloud; //save to raw cloud for a new filter
 
-  // Create the filtering object
-  pcl::PointCloud<PointT>::Ptr cloud (new pcl::PointCloud<PointT>);
-
+  // 2-PASSTHROUGH
   pcl::PassThrough<PointT> pass;
-  pass.setInputCloud (cloud_voxel);
+  pass.setInputCloud (raw_cloud);
   pass.setFilterFieldName ("z");
   pass.setFilterLimits (0, 500.0);
   //pass.setNegative (true);
   pass.filter (*cloud);
+  *raw_cloud = *cloud; //save to raw cloud for a new filter
+
+  // 3-STATISTICAL OUTLIER
+  pcl::StatisticalOutlierRemoval<PointT> sor;
+  sor.setInputCloud (raw_cloud);
+  sor.setMeanK (100);
+  sor.setStddevMulThresh (1.5);
+  sor.filter (*cloud);
 
   std::cout<<"Filtered Cloud Points "<< cloud->width * cloud->height<< std::endl;
   // END of Filtering
   
   
+
+
+
   // START of Transform (better visualisation)
-  
-  //Transformation using a Affine3f for 
-  //BETTER VISUALIZATION of the PointCloud
+  //Transformation using a Affine3f for BETTER VISUALIZATION of the PointCloud
   Eigen::Affine3f visual_transform = Eigen::Affine3f::Identity();
 
   // Define a translation of 2.5 meters on the x axis.
-  visual_transform.translation() << 0.0, 0.0, 0.0;
+  visual_transform.translation() << 0.0, 0.0, 400.0;
   // Define a 180° of rotation around X axis
   float theta = M_PI; 
   visual_transform.rotate (Eigen::AngleAxisf (theta, Eigen::Vector3f::UnitX()));
@@ -67,10 +81,17 @@ int main()
   // Executing the transformation
   pcl::PointCloud<PointT>::Ptr t_cloud (new pcl::PointCloud<PointT>);
   pcl::transformPointCloud(*cloud, *t_cloud, visual_transform);
-  
+
+  *cloud = *t_cloud;  // Copy t_cloud to cloud to be processed and keep t_cloud as starting reference
   // END of Transform 
   
-  // START of Planar segmentation
+
+
+
+
+  // START OF SEGMENTATION (1-Planar, 2-Cylindrical{TO DO!!} , ...)
+
+  // 1-PLANAR SEGMENTATION
   // Declare segmentation pointers
   pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
   pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
@@ -81,16 +102,13 @@ int main()
   //Declare temporary clouds used for the iterative segmentation
   pcl::PointCloud<PointT>::Ptr obj_cloud_temp (new pcl::PointCloud<PointT>), pln_cloud_temp (new pcl::PointCloud<PointT>);
 
-  *cloud = *t_cloud;  // Copy t_cloud to cloud to be processed and keep t_cloud as starting reference
-
-
   int original_size(cloud->height*cloud->width);
   int n_planes(0);
   
   // Set segmantion options:
   Eigen::Vector3f plane_axis(0,0,1); //find planes perpendicular to x axis
   double theta_eps = M_PI/5;
-  float _min_percentage = 0.3; //size threshold of the point cloud for stopping planar segmentation
+  float _min_percentage = 0.2; //size threshold of the point cloud for stopping planar segmentation
   float _max_distance = 1; //size threshold of the point cloud for stopping planar segmentation
 
   pcl::SACSegmentation<PointT> pln_seg;
@@ -108,9 +126,9 @@ int main()
   //Declare vector of pointers containing all the segmented planes
   //std::vector <pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator <pcl::PointCloud<PointT>::Ptr>> v_pln_cloud;
 
-
+  // Planar clustering loop
   printf ("Start planar clustering...\n");
-  int nr_points = (int) cloud->size ();
+  int nr_points = (int) cloud->size (); //compute size of initial point cloud to exit while()
   while (cloud->size() > _min_percentage * nr_points){
 
         // Fit a plane
@@ -156,19 +174,20 @@ int main()
     }
   printf ("Planar clustering iteraion finished.\n");
   std::cout<< "Number of planes segmented: " << n_planes <<std::endl<<std::endl;
-  
-  /*
-  std::cerr << "Model inliers: " << inliers->indices.size () << std::endl;
-  for (const auto& idx: inliers->indices)
-  std::cerr << idx << "    " << cloud->points[idx].x << " "
-                             << cloud->points[idx].y << " "
-                             << cloud->points[idx].z << std::endl;
-  */
 
-  // END of Planar segmentation
 
-  // START of Cylindrical segmentation
-  // END of Cylindrical segmentation
+
+  // 2-CYLINDRICAL SEGMENTATION
+  // {TO DO!!!}
+
+  // END of SEGMENTATION
+
+
+
+
+
+
+
 
 
   // Visualization using PCLVisualizer
