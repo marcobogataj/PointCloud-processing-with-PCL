@@ -1,2 +1,3 @@
 # PointCloud processing with PCL
- Repository contating all testing code for developing a processing chain for the ABB VIsion Project thesis with the Zivid One+ camera.
+ Repository containing all testing code for the development of processing chain for the ABB VIsion Project thesis with the Zivid One+ camera.
+ To be implemented in ROS.
