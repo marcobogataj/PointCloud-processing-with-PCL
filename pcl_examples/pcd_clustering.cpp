@@ -16,6 +16,7 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
+#include <pcl/features/normal_3d.h>
 
 typedef pcl::PointXYZRGBA PointT;
 
@@ -34,42 +35,6 @@ int main()
   std::cout<<"Source Cloud Points "<< raw_cloud->width * raw_cloud->height<< std::endl;
 
 
-
-
-
-  // START of Filtering (1-Voxelization,2-Passthrough,3-Outliers ...)
-  pcl::PointCloud<PointT>::Ptr cloud (new pcl::PointCloud<PointT>); //filtered cloud 
-
-  // 1-VOXELIZE
-  pcl::VoxelGrid<PointT> voxel_filter;
-  voxel_filter.setInputCloud(raw_cloud);
-  voxel_filter.setLeafSize(1,1,1);
-  voxel_filter.filter(*cloud);
-  *raw_cloud = *cloud; //save to raw cloud for a new filter
-
-  // 2-PASSTHROUGH
-  pcl::PassThrough<PointT> pass;
-  pass.setInputCloud (raw_cloud);
-  pass.setFilterFieldName ("z");
-  pass.setFilterLimits (0, 500.0);
-  //pass.setNegative (true);
-  pass.filter (*cloud);
-  *raw_cloud = *cloud; //save to raw cloud for a new filter
-
-  // 3-STATISTICAL OUTLIER
-  pcl::StatisticalOutlierRemoval<PointT> sor;
-  sor.setInputCloud (raw_cloud);
-  sor.setMeanK (100);
-  sor.setStddevMulThresh (1.5);
-  sor.filter (*cloud);
-
-  std::cout<<"Filtered Cloud Points "<< cloud->width * cloud->height<< std::endl;
-  // END of Filtering
-  
-  
-
-
-
   // START of Transform (better visualisation)
   //Transformation using a Affine3f for BETTER VISUALIZATION of the PointCloud
   Eigen::Affine3f visual_transform = Eigen::Affine3f::Identity();
@@ -81,18 +46,46 @@ int main()
   visual_transform.rotate (Eigen::AngleAxisf (theta, Eigen::Vector3f::UnitX()));
 
   // Executing the transformation
-  pcl::PointCloud<PointT>::Ptr t_cloud (new pcl::PointCloud<PointT>);
-  pcl::transformPointCloud(*cloud, *t_cloud, visual_transform);
+  pcl::PointCloud<PointT>::Ptr t_raw_cloud (new pcl::PointCloud<PointT>);
+  pcl::transformPointCloud(*raw_cloud, *t_raw_cloud, visual_transform);
 
-  *cloud = *t_cloud;  // Copy t_cloud to cloud to be processed and keep t_cloud as starting reference
+  *raw_cloud = *t_raw_cloud;  // Copy t_raw_cloud to raw_cloud to be processed and keep t_cloud as starting reference
   // END of Transform 
+
+
+  // START of Filtering (1-Voxelization,2-Passthrough,3-Outliers ...)
+  pcl::PointCloud<PointT>::Ptr cloud (new pcl::PointCloud<PointT>); //filtered cloud 
+
+  // 1-VOXELIZE
+  pcl::VoxelGrid<PointT> voxel_filter;
+  voxel_filter.setInputCloud(raw_cloud);
+  voxel_filter.setLeafSize(0.4f,0.4f,0.4f);
+  voxel_filter.filter(*cloud);
+  *raw_cloud = *cloud; //save to raw cloud for a new filter
+
+  // 2-PASSTHROUGH
+  pcl::PassThrough<PointT> pass;
+  pass.setInputCloud (raw_cloud);
+  pass.setFilterFieldName ("z");
+  pass.setFilterLimits (-100, 100);
+  //pass.setNegative (true);
+  pass.filter (*cloud);
+  *raw_cloud = *cloud; //save to raw cloud for a new filter
+
+  // 3-STATISTICAL OUTLIER
+  pcl::StatisticalOutlierRemoval<PointT> sor;
+  sor.setInputCloud (raw_cloud);
+  sor.setMeanK (100);
+  sor.setStddevMulThresh (1);
+  sor.filter (*cloud);
+
+  std::cout<<"Filtered Cloud Points "<< cloud->width * cloud->height<< std::endl;
+  // END of Filtering
   
 
 
 
-
-  // START OF SEGMENTATION (1-Planar, 2-Cylindrical{TO DO!!} , ...)
-
+  // START OF SEGMENTATION (*Normal extraction THEN 1-Planar, 2-Cylindrical{TO DO!!} , ...)
   // 1-PLANAR SEGMENTATION
   // Declare segmentation pointers
   pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
@@ -113,14 +106,14 @@ int main()
   float _min_percentage = 0.2; //size threshold of the point cloud for stopping planar segmentation
   float _max_distance = 1; //size threshold of the point cloud for stopping planar segmentation
 
-  pcl::SACSegmentation<PointT> pln_seg;
-  pln_seg.setModelType(pcl::SACMODEL_PLANE);
-  pln_seg.setMethodType(pcl::SAC_RANSAC);
-  pln_seg.setDistanceThreshold(_max_distance);
-  pln_seg.setOptimizeCoefficients(true);
-  pln_seg.setMaxIterations(100);
-  //pln_seg.setEpsAngle(theta_eps);
-  //pln_seg.setAxis(plane_axis);
+  pcl::SACSegmentation<PointT> seg;
+  seg.setModelType(pcl::SACMODEL_PLANE);
+  seg.setMethodType(pcl::SAC_RANSAC);
+  seg.setDistanceThreshold(_max_distance);
+  seg.setOptimizeCoefficients(true);
+  seg.setMaxIterations(100);
+  //seg.setEpsAngle(theta_eps);
+  //seg.setAxis(plane_axis);
 
   // Declare extraction pointer
   pcl::ExtractIndices<PointT> extract; 
@@ -134,8 +127,8 @@ int main()
   while (cloud->size() > _min_percentage * nr_points){
 
         // Fit a plane
-        pln_seg.setInputCloud(cloud);
-        pln_seg.segment(*inliers, *coefficients);
+        seg.setInputCloud(cloud);
+        seg.segment(*inliers, *coefficients);
 
         // Check result
         if (inliers->indices.size () == 0)
@@ -181,7 +174,51 @@ int main()
 
   // 2-CYLINDRICAL SEGMENTATION
   // {TO DO!!!}
+  // Normal estimation (in OUR case, these will be handed out directly by the Zivid Camera)
+  pcl::NormalEstimation<PointT, pcl::Normal> ne;
+  pcl::ExtractIndices<pcl::Normal> extract_normals;
+  pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT> ());
+  pcl::PointCloud<pcl::Normal>::Ptr obj_normals (new pcl::PointCloud<pcl::Normal>);
+  
+  // Estimate point normals
+  ne.setSearchMethod (tree);
+  ne.setInputCloud (cloud);
+  ne.setKSearch (50);
+  ne.compute (*obj_normals);
+ 
 
+  // Create the segmentation object for cylinder segmentation and set all the parameters
+  pcl::PointCloud<PointT>::Ptr cyl_cloud (new pcl::PointCloud<PointT>), res_cloud (new pcl::PointCloud<PointT>);
+  pcl::PointIndices::Ptr cyl_inliers (new pcl::PointIndices);
+  pcl::ModelCoefficients::Ptr cyl_coefficients (new pcl::ModelCoefficients);
+  
+  pcl::SACSegmentationFromNormals<PointT, pcl::Normal> seg_n; //segmentation object from normals
+
+  seg_n.setOptimizeCoefficients (true);
+  seg_n.setModelType (pcl::SACMODEL_CYLINDER);
+  seg_n.setMethodType (pcl::SAC_RANSAC);
+  seg_n.setMaxIterations (10000);
+  seg_n.setDistanceThreshold (0.2);
+  seg_n.setRadiusLimits (0.1, 6);
+  seg_n.setNormalDistanceWeight (0.1);
+  seg_n.setInputCloud (cloud);
+  seg_n.setInputNormals (obj_normals);
+
+  // Obtain the cylinder inliers and coefficients
+  seg_n.segment (*cyl_inliers, *cyl_coefficients);
+  std::cerr << "Cylinder coefficients: " << *cyl_coefficients << std::endl;
+
+  // cylinder extraction
+  extract.setInputCloud (cloud);
+  extract.setIndices (cyl_inliers);
+  extract.setNegative (false);
+  extract.filter (*cyl_cloud);
+  if (cyl_cloud->points.empty ()) 
+    std::cerr << "Can't find the cylindrical component." << std::endl;
+  else
+
+  extract.setNegative (true);
+  extract.filter (*res_cloud);
   // END of SEGMENTATION
 
 
@@ -199,20 +236,24 @@ int main()
   viewer.createViewPort (0.0, 0.0, 0.5, 1.0, v1);
   viewer.setBackgroundColor (0, 0, 0, v1);
   viewer.addText ("Source point cloud",10,10,"v1 text", v1);
-  viewer.addPointCloud<PointT> (t_cloud, "t_cloud", v1);
+  viewer.addPointCloud<PointT> (t_raw_cloud, "t_cloud", v1);
 
   int v2(0);
   viewer.createViewPort (0.5, 0.0, 1.0, 1.0, v2);
   viewer.setBackgroundColor (0.3, 0.3, 0.3, v2);
   viewer.addText ("Segmented point cloud", 10, 10, "v2 text", v2);
-  pcl::visualization::PointCloudColorHandlerCustom<PointT> obj_color (cloud, 255, 0, 0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointT> obj_color (res_cloud, 255, 0, 0);
   pcl::visualization::PointCloudColorHandlerCustom<PointT> pln_color (pln_cloud, 0, 255, 0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointT> cyl_color (cyl_cloud, 255, 0, 0);
   
-  //add objects point cloud (shown in red)
-  viewer.addPointCloud<PointT> (cloud, "obj_cloud", v2);
+  //add objects point cloud (original color)
+  viewer.addPointCloud<PointT> (res_cloud, "obj_cloud", v2);
   
   //add extracted plane point cloud (shown in green)
   viewer.addPointCloud<PointT> (pln_cloud, pln_color, "pln_clouds", v2);
+
+  //add extracted cylinders (shown in red)
+  viewer.addPointCloud<PointT> (cyl_cloud, cyl_color, "cyl_clouds", v2);
 
   //add sphere in (0,0,0) with radius 500 for debugging filters
   /*
@@ -224,6 +265,7 @@ int main()
   viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "t_cloud");
   viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "obj_cloud");
   viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "pln_clouds");
+  viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "cyl_clouds");
   viewer.addCoordinateSystem (100);
   viewer.setBackgroundColor(255, 255, 255); // Setting background color
 
