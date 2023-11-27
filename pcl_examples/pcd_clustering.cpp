@@ -69,7 +69,6 @@ int main()
   pass.setInputCloud (raw_cloud);
   pass.setFilterFieldName ("z");
   pass.setFilterLimits (-100, 100);
-  //pass.setNegative (true);
   pass.filter (*cloud);
   *raw_cloud = *cloud; //save to raw cloud for a new filter
 
@@ -178,9 +177,9 @@ int main()
 
   std::vector<pcl::PointIndices> cluster_indices;
   pcl::EuclideanClusterExtraction<PointT> ec;
-  ec.setClusterTolerance (1); 
-  ec.setMinClusterSize (20);
-  ec.setMaxClusterSize (200);
+  ec.setClusterTolerance (0.6); 
+  ec.setMinClusterSize (500);
+  ec.setMaxClusterSize (30000);
   ec.setSearchMethod (tree);
   ec.setInputCloud (cloud);
   ec.extract (cluster_indices);
@@ -197,96 +196,6 @@ int main()
   pcl::PointCloud<PointT>::Ptr res_cloud (new pcl::PointCloud<PointT>), res_cloud_temp (new pcl::PointCloud<PointT>);
   pcl::PointIndices::Ptr idx; //
  
-  //1° try
- /*  for (int c =0; c<= cluster_indices.size(); c++)
-  {
-    std::cout<<"Saving cluster "<< c <<"...";
-    curr_segment_cloud.reset (new pcl::PointCloud<PointT>);
-    *idx = cluster_indices[c];
-    
-    //Extract segmented object
-    extract.setInputCloud(cloud);
-    extract.setIndices(idx);
-    extract.setNegative(false);
-    extract.filter(*curr_segment_cloud);
-
-    // Push back point cloud into return vector
-    v_segment_clouds.push_back(curr_segment_cloud);
-
-    // extract rest of cloud (not segmented)
-    //extract.setNegative(true);
-    //extract.filter(*res_cloud_temp);
-    //*res_cloud += *res_cloud_temp;
-  
-    std::cout<<"Cluster "<< c <<" saved."<<std::endl;
-  }
-  */
-  /*
-  // 3-CYLINDRICAL SEGMENTATION
-  // Normal estimation (in OUR case, these will be handed out directly by the Zivid Camera)
-  pcl::NormalEstimation<PointT, pcl::Normal> ne;
-  pcl::ExtractIndices<pcl::Normal> extract_normals;
-  pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT> ());
-  pcl::PointCloud<pcl::Normal>::Ptr obj_normals (new pcl::PointCloud<pcl::Normal>), obj_normals_temp (new pcl::PointCloud<pcl::Normal>);
-  
-  // Estimate point normals
-  ne.setSearchMethod (tree);
-  ne.setInputCloud (cloud);
-  ne.setKSearch (50);
-  ne.compute (*obj_normals);
- 
-
-  // Create the segmentation object for cylinder segmentation and set all the parameters
-  pcl::PointCloud<PointT>::Ptr cyl_cloud (new pcl::PointCloud<PointT>), res_cloud (new pcl::PointCloud<PointT>);
-  pcl::PointIndices::Ptr cyl_inliers (new pcl::PointIndices);
-  pcl::ModelCoefficients::Ptr cyl_coefficients (new pcl::ModelCoefficients);
-  
-  pcl::SACSegmentationFromNormals<PointT, pcl::Normal> seg_n; //segmentation object from normals
-
-  seg_n.setOptimizeCoefficients (true);
-  seg_n.setModelType (pcl::SACMODEL_CYLINDER);
-  seg_n.setMethodType (pcl::SAC_RANSAC);
-  seg_n.setMaxIterations (10000);
-  seg_n.setDistanceThreshold (0.2);
-  seg_n.setRadiusLimits (0.1, 6);
-  seg_n.setNormalDistanceWeight (0.1);
-  seg_n.setInputCloud (cloud);
-  seg_n.setInputNormals (obj_normals);
-
-  // Obtain the cylinder inliers and coefficients
-  seg_n.segment (*cyl_inliers, *cyl_coefficients);
-  std::cerr << "Cylinder coefficients: " << *cyl_coefficients << std::endl;
-  // Display info
-  std::cerr << "Cylinder coefficients: "<< std::endl 
-            << "Point on axis: "
-            << "(" << cyl_coefficients->values[0]  
-            << "," << cyl_coefficients->values[1] 
-            << "," << cyl_coefficients->values[2] << ")" << std::endl 
-            << "Axis direction: "
-            << "(" << cyl_coefficients->values[3]  
-            << "," << cyl_coefficients->values[4] 
-            << "," << cyl_coefficients->values[5] << ")" << std::endl 
-            << "Radius: " << cyl_coefficients->values[6]  << std::endl;
-
-  // cylinder extraction
-  extract.setInputCloud (cloud);
-  extract.setIndices (cyl_inliers);
-  extract.setNegative (false);
-  extract.filter (*cyl_cloud);
-  if (cyl_cloud->points.empty ()) 
-    std::cerr << "Can't find the cylindrical component." << std::endl;
-  else
-
-  extract_normals.setNegative (true);
-  extract_normals.setInputCloud (obj_normals);
-  extract_normals.setIndices (cyl_inliers);
-  extract_normals.filter (*obj_normals_temp);
-  *obj_normals = *obj_normals_temp;
-
-  extract.setNegative (true);
-  extract.filter (*res_cloud);
-  */
-
   //2° try
   int j = 0;
   for (const auto& cluster : cluster_indices)
@@ -347,7 +256,7 @@ int main()
         pcl::visualization::PointCloudColorHandlerCustom<PointT> colour_handle(curr_cloud, rgb.r, rgb.g, rgb.b);
 
         // Add points to viewer and set parameters
-        viewer.addPointCloud<PointT> (curr_cloud, colour_handle, cloud_name.str());
+        viewer.addPointCloud<PointT> (curr_cloud, colour_handle, cloud_name.str(),v2);
         viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, cloud_name.str());
     }
 
@@ -364,7 +273,7 @@ int main()
   //viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "obj_cloud");
   viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "pln_clouds");
   
-  viewer.addCoordinateSystem (100);
+  viewer.addCoordinateSystem (10);
   viewer.setBackgroundColor(255, 255, 255); // Setting background color
 
   while (!viewer.wasStopped ()) { // Display the visualiser 
