@@ -201,7 +201,12 @@ int main()
   std::vector< pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator<pcl::PointCloud<PointT>::Ptr> > v_segment_clouds;
   pcl::PointCloud<PointT>::Ptr curr_segment_cloud;
   pcl::PointCloud<PointT>::Ptr res_cloud (new pcl::PointCloud<PointT>), res_cloud_temp (new pcl::PointCloud<PointT>);
-  pcl::PointIndices::Ptr idx; //
+  pcl::PointIndices::Ptr idx; 
+
+  //define objects for centroid extraction
+  std::vector<pcl::PointXYZ, Eigen::aligned_allocator <pcl::PointXYZ> > v_centroids;
+  Eigen::Vector4f centroid;
+  pcl::PointXYZ centroid_point;
  
   int j = 0;
   for (const auto& cluster : cluster_indices)
@@ -214,8 +219,19 @@ int main()
     cloud_cluster->height = 1;
     cloud_cluster->is_dense = true;
 
-    std::cout<<"Saving cluster "<< j+1 <<" to point cloud cluster vector...";
+    std::cout<<"Saving cluster "<< j+1 <<" to point cloud cluster vector..."<<std::endl;
     v_segment_clouds.push_back(cloud_cluster);
+
+    std::cout<<"Compute and save cluster centroid..."<<std::endl;
+    pcl::compute3DCentroid(*cloud_cluster, centroid); 
+
+    //First three elements of centroid are x,y,x. Last is 1 to allow 4x4 matrix transformations
+    //Save centroid as PointXYZ
+    centroid_point.x = centroid[0];
+    centroid_point.y = centroid[1];
+    centroid_point.z = centroid[2];
+
+    v_centroids.push_back(centroid_point); //add to vector of centroids
 
     std::cout<<"Cluster "<< j+1 <<" saved."<<std::endl;
     j++;
@@ -251,13 +267,19 @@ int main()
   viewer.addPointCloud<PointT> (pln_cloud, pln_color, "pln_clouds", v2);
 
   //add point clouds from the segmented clouds vector (shown in random colors)
-    std::stringstream cloud_name;
+    std::stringstream cloud_name, centroid_text, centroid_sphere;
     int counter(0);
     pcl::RGB rgb;
     for (const auto &curr_cloud : v_segment_clouds) {
         ++counter;
         cloud_name.str("");
         cloud_name << "Segmentation " << counter;
+
+        centroid_text.str("");
+        centroid_text <<"Cluster " <<counter;
+
+        centroid_sphere.str("");
+        centroid_sphere <<"C" <<counter;
 
         // Generate unique colour
         rgb = pcl::GlasbeyLUT::at(counter);
@@ -268,6 +290,8 @@ int main()
         // Add points to viewer and set parameters
         viewer.addPointCloud<PointT> (curr_cloud, colour_handle, cloud_name.str(),v2);
         viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, cloud_name.str());
+        viewer.addText3D(centroid_text.str(),v_centroids[counter-1], 2.0, 0.0, 0.0, 0.0, centroid_text.str(), v2);
+        viewer.addSphere (v_centroids[counter-1], 2, 0, 0, 0,centroid_sphere.str(),v2);
     }
 
   //add extracted cylinders (shown in red)
