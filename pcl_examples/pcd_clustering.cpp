@@ -237,11 +237,33 @@ int main()
     j++;
   }
 
+  // 3-CONDITIONAL EUCLIDIAN CLUSTER EXTRACTION
+  //{TO DO!!!}
+
+
   // END of SEGMENTATION
 
-  // START of pose, geometry or inertia ellipsoid estimation (to publish for grasping planning)
+  // FIT PRIMITIVE MODELS on clusters
+  // Fit cylinder
+
+  // Idea: 
+  // use pcl::SACSegmentationFromNormals with setModelType (pcl::SACMODEL_NORMAL_PLANE) to estimate
+  // cylinder coefficients point_on_axis (𝑐), axis_direction (𝑣), radius (R).
+  // To estimate cylinder height: https://math.stackexchange.com/questions/3324579/sorting-collinear-points-on-a-3d-line
+  // 1-> Project cylinder inliers onto the cylinder axis 𝑣. (https://pcl.readthedocs.io/projects/tutorials/en/latest/project_inliers.html)
+  // 2-> Choose 𝑣 as the trend vector and 𝑣_𝑖 = 𝑝_𝑖 - 𝑐 
+  // 3-> Initialize (mag_min = 0, 𝑝_min) and (mag_max = 0, 𝑝_max) 
+  // 4-> Compute the value of the dot product mag_𝑖 = 𝑣_𝑖⋅𝑣 which measures "how much" 
+  //     a given point points in the direction of the trend vector 𝑣
+  // 5-> Compare mag_𝑖 to mag_max and mag_min 
+  //        IF mag_𝑖 > mag_max ----> mag_max = mag_𝑖; 𝑝_max = 𝑝_𝑖;
+  //   ELSE IF mag_𝑖 < mag_min ----> mag_min = mag_𝑖; 𝑝_min = 𝑝_𝑖;
+  //      ELSE break
+  //
+  //   Then go back to 4 and increase 𝑖.
+  //
+  // 6-> Having scanned all the projected point clouds, compute Height = L2norm(𝑝_max,𝑝_min)
   
-  // END of 
 
 
   // Visualization using PCLVisualizer
