@@ -4,6 +4,7 @@
 #include <iostream>
 #include <Eigen/Geometry>
 #include <pcl/io/pcd_io.h>
+#include <pcl/io/ply_io.h>
 #include <pcl/point_types.h>
 #include <pcl/common/transforms.h>
 #include <pcl/visualization/pcl_visualizer.h>
@@ -27,7 +28,7 @@ int main()
   pcl::PointCloud<PointT>::Ptr raw_cloud (new pcl::PointCloud<PointT>);
 
   std::string path = "/Users/marcobogataj/Documents/UNI/magistrale/BG/THESIS/Tesi ABB/zivid_captures/";
-  if (pcl::io::loadPCDFile<PointT> (path+std::string("zivid_manual_holefilling.pcd"), *raw_cloud) == -1) //* load the file
+  if (pcl::io::loadPLYFile<PointT> (path+std::string("zivid_manual_holefilling.ply"), *raw_cloud) == -1) //* load the file
   {
       PCL_ERROR ("Couldn't read the .PCD file\n");
       return (-1);
@@ -122,6 +123,11 @@ int main()
   //std::vector <pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator <pcl::PointCloud<PointT>::Ptr>> v_pln_cloud;
 
   // Planar clustering loop
+  //POSSIBLE UPGRADES:
+  //Terminate not by checking percentage clustered but by checking size of last plane clustered.
+  //idea: Exit if size of last plane in terms of points is significantly smaller than a threshold 
+  //(either relative (to previous planes), or absolute (to planes that I usually find because of tables, containers, boxes))
+
   printf ("Start planar clustering...\n");
   int nr_points = (int) cloud->size (); //compute size of initial point cloud to exit while()
   while (cloud->size() > _min_percentage * nr_points){
@@ -170,6 +176,7 @@ int main()
   printf ("Planar clustering iteraion finished.\n");
   std::cout<< "Number of planes segmented: " << n_planes <<std::endl<<std::endl;
 
+  
   // 2-EUCLIDIAN CLUSTER EXTRACTION
   // Creating the KdTree object for the search method of the extraction
   pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
@@ -190,13 +197,12 @@ int main()
   //In visualization, generate a unique color for each cluster vector element 
   //and add to the visualizer
 
-  // Extract points and copy them to clouds vector
+  // Extract points and copy them to clouds vector -> v_segment_clouds
   std::vector< pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator<pcl::PointCloud<PointT>::Ptr> > v_segment_clouds;
   pcl::PointCloud<PointT>::Ptr curr_segment_cloud;
   pcl::PointCloud<PointT>::Ptr res_cloud (new pcl::PointCloud<PointT>), res_cloud_temp (new pcl::PointCloud<PointT>);
   pcl::PointIndices::Ptr idx; //
  
-  //2° try
   int j = 0;
   for (const auto& cluster : cluster_indices)
   {
@@ -216,6 +222,10 @@ int main()
   }
 
   // END of SEGMENTATION
+
+  // START of pose, geometry or inertia ellipsoid estimation (to publish for grasping planning)
+  
+  // END of 
 
 
   // Visualization using PCLVisualizer
