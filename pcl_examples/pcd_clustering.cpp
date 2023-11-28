@@ -185,8 +185,8 @@ int main()
   std::vector<pcl::PointIndices> cluster_indices;
   pcl::EuclideanClusterExtraction<PointT> ec;
   ec.setClusterTolerance (0.6); 
-  ec.setMinClusterSize (500);
-  ec.setMaxClusterSize (30000);
+  ec.setMinClusterSize (2000);
+  ec.setMaxClusterSize (28000);
   ec.setSearchMethod (tree);
   ec.setInputCloud (cloud);
   ec.extract (cluster_indices);
@@ -219,10 +219,10 @@ int main()
     cloud_cluster->height = 1;
     cloud_cluster->is_dense = true;
 
-    std::cout<<"Saving cluster "<< j+1 <<" to point cloud cluster vector..."<<std::endl;
+    //std::cout<<"Saving cluster "<< j+1 <<" to point cloud cluster vector..."<<std::endl;
     v_segment_clouds.push_back(cloud_cluster);
 
-    std::cout<<"Compute and save cluster centroid..."<<std::endl;
+    //std::cout<<"Compute and save cluster centroid..."<<std::endl;
     pcl::compute3DCentroid(*cloud_cluster, centroid); 
 
     //First three elements of centroid are x,y,x. Last is 1 to allow 4x4 matrix transformations
@@ -233,7 +233,7 @@ int main()
 
     v_centroids.push_back(centroid_point); //add to vector of centroids
 
-    std::cout<<"Cluster "<< j+1 <<" saved."<<std::endl;
+    std::cout<<"Cluster "<< j+1 <<" size: "<< cloud_cluster->size() <<std::endl;
     j++;
   }
 
