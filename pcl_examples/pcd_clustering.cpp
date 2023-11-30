@@ -7,6 +7,8 @@
 #include <pcl/io/ply_io.h>
 #include <pcl/point_types.h>
 #include <pcl/common/transforms.h>
+#include <pcl/common/distances.h>
+#include <pcl/common/time.h>
 #include <pcl/visualization/pcl_visualizer.h>
 
 //specific processing libraries
@@ -19,11 +21,15 @@
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/features/normal_3d.h>
+#include <pcl/filters/project_inliers.h>
 
 typedef pcl::PointXYZRGBA PointT;
 
 int main()
 {
+  pcl::StopWatch watch;
+  watch.reset();
+
   // Load PCD file
   pcl::PointCloud<PointT>::Ptr raw_cloud (new pcl::PointCloud<PointT>);
 
@@ -36,6 +42,7 @@ int main()
 
   std::cout<<"Source Cloud Points "<< raw_cloud->width * raw_cloud->height<< std::endl;
 
+  std::cout<<std::endl<<"Loading time "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
 
   // START of Transform (better visualisation)
   //Transformation using a Affine3f for BETTER VISUALIZATION of the PointCloud
@@ -53,6 +60,8 @@ int main()
 
   *raw_cloud = *t_raw_cloud;  // Copy t_raw_cloud to raw_cloud to be processed and keep t_cloud as starting reference
   // END of Transform 
+
+  std::cout<<std::endl<<"Transform time "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
 
 
   // START of Filtering (1-Voxelization,2-Passthrough,3-Outliers ...)
@@ -83,7 +92,7 @@ int main()
   std::cout<<"Filtered Cloud Points "<< cloud->width * cloud->height<< std::endl;
   // END of Filtering
   
-
+  std::cout<<std::endl<<"Filtering time "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
 
 
   // START OF SEGMENTATION (1-Planar, 2-Cylindrical{TO DO!!} , ...)
@@ -118,9 +127,6 @@ int main()
 
   // Declare extraction pointer
   pcl::ExtractIndices<PointT> extract; 
-
-  //Declare vector of pointers containing all the segmented planes
-  //std::vector <pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator <pcl::PointCloud<PointT>::Ptr>> v_pln_cloud;
 
   // Planar clustering loop
   //POSSIBLE UPGRADES:
@@ -173,9 +179,10 @@ int main()
         // Nest iteration
         n_planes++;
     }
-  printf ("Planar clustering iteraion finished.\n");
+  printf ("Planar clustering iteration finished.\n");
   std::cout<< "Number of planes segmented: " << n_planes <<std::endl<<std::endl;
 
+  std::cout<<std::endl<<"Planar segmentation time "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
   
   // 2-EUCLIDIAN CLUSTER EXTRACTION
   // Creating the KdTree object for the search method of the extraction
@@ -237,6 +244,8 @@ int main()
     j++;
   }
 
+  std::cout<<std::endl<<"Eucledian clusterization time "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
+
   // 3-CONDITIONAL EUCLIDIAN CLUSTER EXTRACTION
   //{TO DO!!!}
 
@@ -247,8 +256,62 @@ int main()
   // Fit cylinder
 
   // Idea: 
-  // use pcl::SACSegmentationFromNormals with setModelType (pcl::SACMODEL_NORMAL_PLANE) to estimate
+  // use pcl::SACSegmentationFromNormals with setModelType (pcl::SACMODEL_CYLINDER) to estimate
   // cylinder coefficients point_on_axis (𝑐), axis_direction (𝑣), radius (R).
+  pcl::SACSegmentationFromNormals<PointT, pcl::Normal> seg2;
+  pcl::PointIndices::Ptr inliers_cylinder (new pcl::PointIndices);
+  pcl::ModelCoefficients::Ptr coefficients_cylinder (new pcl::ModelCoefficients);
+  pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
+  pcl::NormalEstimation<PointT, pcl::Normal> ne;
+  pcl::search::KdTree<PointT>::Ptr tree2 (new pcl::search::KdTree<PointT> ());
+
+  //FIRST TEST: CHOOSE CLUSTER 0 
+
+  // Estimate point normals
+  ne.setSearchMethod (tree2);
+  ne.setInputCloud (v_segment_clouds[0]);
+  ne.setKSearch (50);
+  ne.compute (*cloud_normals);
+
+  // Create the segmentation object for cylinder segmentation and set all the parameters
+  seg2.setOptimizeCoefficients (true);
+  seg2.setModelType (pcl::SACMODEL_CYLINDER);
+  seg2.setMethodType (pcl::SAC_RANSAC);
+  seg2.setNormalDistanceWeight (0.1);
+  seg2.setMaxIterations (10000);
+  seg2.setDistanceThreshold (2);
+  seg2.setRadiusLimits (1,15);
+  seg2.setInputCloud (v_segment_clouds[0]);
+  seg2.setInputNormals (cloud_normals);
+
+  // Obtain the cylinder inliers and coefficients
+  seg2.segment (*inliers_cylinder, *coefficients_cylinder);
+  std::cerr << "Cylinder coefficients: " << std::endl;
+
+  // Display cylinder info
+  std::cerr << "Point on axis  ->("  << coefficients_cylinder->values[0] << ", " 
+                                     << coefficients_cylinder->values[1] << ", "
+                                     << coefficients_cylinder->values[2] << ") "<<std::endl<< 
+               "Axis direction ->("  << coefficients_cylinder->values[3] << ", "
+                                     << coefficients_cylinder->values[4] << ", "
+                                     << coefficients_cylinder->values[5] << ") "<<std::endl<< 
+               "Radius = "           << coefficients_cylinder->values[6] <<std::endl;
+
+  extract.setInputCloud (v_segment_clouds[0]);
+  extract.setIndices (inliers_cylinder);
+  extract.setNegative (false);
+  pcl::PointCloud<PointT>::Ptr cloud_cylinder (new pcl::PointCloud<PointT> ());
+  extract.filter (*cloud_cylinder);
+
+  int size_cyl = cloud_cylinder->width*cloud_cylinder->height;
+
+  std::cout<< "Cylinder inlier points:" << size_cyl <<std::endl;
+
+  if (cloud_cylinder->points.empty ()) 
+    std::cerr << "Can't find the cylindrical component." << std::endl;
+
+  std::cout<<std::endl<<"Cylindrical fitting time: "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
+
   // To estimate cylinder height: https://math.stackexchange.com/questions/3324579/sorting-collinear-points-on-a-3d-line
   // 1-> Project cylinder inliers onto the cylinder axis 𝑣. (https://pcl.readthedocs.io/projects/tutorials/en/latest/project_inliers.html)
   // 2-> Choose 𝑣 as the trend vector and 𝑣_𝑖 = 𝑝_𝑖 - 𝑐 
@@ -264,7 +327,78 @@ int main()
   //
   // 6-> Having scanned all the projected point clouds, compute Height = L2norm(𝑝_max,𝑝_min)
   
+  pcl::PointCloud<PointT>::Ptr line_proj (new pcl::PointCloud<PointT>);
+  
+  pcl::ModelCoefficients::Ptr coefficients_line (new pcl::ModelCoefficients ());
+  coefficients_line->values.resize (6);
+  
+  coefficients_line->values[0] = coefficients_cylinder->values[0];
+  coefficients_line->values[1] = coefficients_cylinder->values[1];
+  coefficients_line->values[2] = coefficients_cylinder->values[2];
+  coefficients_line->values[3] = coefficients_cylinder->values[3];
+  coefficients_line->values[4] = coefficients_cylinder->values[4];
+  coefficients_line->values[5] = coefficients_cylinder->values[5];
 
+  pcl::ProjectInliers<PointT> proj;
+  proj.setModelType (pcl::SACMODEL_LINE);
+  proj.setInputCloud (cloud_cylinder);
+  proj.setModelCoefficients (coefficients_line);
+  proj.filter (*line_proj);
+
+  std::cout<<std::endl<<"Projecting on line time: "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
+
+
+  //compute height by computing the maximum segment on the projected points
+  pcl::PointXYZRGBA p_min, p_max;
+
+  //pcl::getMaxSegment(*line_proj, p_min, p_max);
+  p_min = line_proj->points[0];
+  p_max = line_proj->points[size_cyl-1];
+
+  std::cout<<std::endl<<"Getting max (approximate) segment time: "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
+  /*
+  pcl::PointXYZ p_i
+  float mag_i, mag_min=0, mag_max=0;
+  std::vector<float> v, v_i;
+  v[0]=coefficients_cylinder->values[3];
+  v[1]=coefficients_cylinder->values[4];
+  v[2]=coefficients_cylinder->values[5];
+
+  for (auto& point: *line_proj) //Sorting for the projected points -output p_max. p_min
+  {
+    p_i.x = point.x; 
+    p_i.y = point.y;
+    p_i.z = point.z;
+
+    v_i = {p_i.x - c.x, p_i.y - c.y, p_i.z - c.z};
+    
+    mag_i = v_i[0]*v[0] + v_i[1]*v[1] + v_i[2]*v[2];
+
+    if(mag_i > mag_max){
+      mag_max = mag_i;
+      p_max = p_i;
+    }
+    else if(mag_i < mag_min){
+      mag_min = mag_i;
+      p_min = p_i;
+    }
+    else{}; //DO NOTHING
+  }
+  */
+
+  float h; //cylinder heigh estimation
+  h = pcl::euclideanDistance(p_min,p_max);
+
+  float axis_norm = sqrt(pow(coefficients_cylinder->values[3],2)+
+                         pow(coefficients_cylinder->values[4],2)+
+                         pow(coefficients_cylinder->values[5],2));
+
+  coefficients_cylinder->values[0]=p_min.x;
+  coefficients_cylinder->values[1]=p_min.y;
+  coefficients_cylinder->values[2]=p_min.z;
+  coefficients_cylinder->values[3]=coefficients_cylinder->values[3]*h/axis_norm;
+  coefficients_cylinder->values[4]=coefficients_cylinder->values[4]*h/axis_norm;
+  coefficients_cylinder->values[5]=coefficients_cylinder->values[5]*h/axis_norm;
 
   // Visualization using PCLVisualizer
   pcl::visualization::PCLVisualizer viewer ("Cloud viewer");
@@ -281,6 +415,7 @@ int main()
   viewer.addText ("Segmented point cloud", 10, 10, "v2 text", v2);
   //pcl::visualization::PointCloudColorHandlerCustom<PointT> obj_color (res_cloud, 255, 0, 0);
   pcl::visualization::PointCloudColorHandlerCustom<PointT> pln_color (pln_cloud, 0, 255, 0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointT> cyl_color (cloud_cylinder, 0, 0, 0);
   
   //add objects point cloud (original color)
   //viewer.addPointCloud<PointT> (res_cloud, "obj_cloud", v2);
@@ -310,15 +445,20 @@ int main()
         pcl::visualization::PointCloudColorHandlerCustom<PointT> colour_handle(curr_cloud, rgb.r, rgb.g, rgb.b);
 
         // Add points to viewer and set parameters
-        viewer.addPointCloud<PointT> (curr_cloud, colour_handle, cloud_name.str(),v2);
-        viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, cloud_name.str());
-        viewer.addText3D(centroid_text.str(),v_centroids[counter-1], 2.0, 0.0, 0.0, 0.0, centroid_text.str(), v2);
-        viewer.addSphere (v_centroids[counter-1], 2, 0, 0, 0,centroid_sphere.str(),v2);
+        if(counter != 1)
+        {
+          viewer.addPointCloud<PointT> (curr_cloud, colour_handle, cloud_name.str(),v2);
+          viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, cloud_name.str());
+          viewer.addText3D(centroid_text.str(),v_centroids[counter-1], 2.0, 0.0, 0.0, 0.0, centroid_text.str(), v2);
+          //viewer.addSphere (v_centroids[counter-1], 2, 0, 0, 0,centroid_sphere.str(),v2);
+        }
     }
 
-  //add extracted cylinders (shown in red)
-  // viewer.addCylinder(*cyl_coefficients, "cylinder", v2);
-  // viewer.addPointCloud<PointT> (cyl_cloud, cyl_color, "cyl_clouds", v2);
+  //add extracted cylinder (shown in black) + height points as spheres (p_min and p_max)
+  viewer.addCylinder(*coefficients_cylinder, "cylinder", v2);
+  viewer.addPointCloud<PointT> (cloud_cylinder, cyl_color, "cyl_clouds", v2);
+  viewer.addSphere (p_min, 2, 0, 0, 0,"p_min",v2);
+  viewer.addSphere (p_max, 2, 0, 0, 0,"p_max",v2);
 
   //add sphere in (0,0,0) with radius 500 for debugging filters
   //pcl::PointXYZ C(0,  0, 0);
@@ -331,6 +471,8 @@ int main()
   
   viewer.addCoordinateSystem (10);
   viewer.setBackgroundColor(255, 255, 255); // Setting background color
+
+  std::cout<<std::endl<<"Setting up visualization time: "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
 
   while (!viewer.wasStopped ()) { // Display the visualiser 
   viewer.spinOnce ();
