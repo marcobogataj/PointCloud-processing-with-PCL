@@ -35,7 +35,7 @@ int main()
   pcl::PointCloud<PointT>::Ptr raw_cloud (new pcl::PointCloud<PointT>);
 
   std::string path = "/Users/marcobogataj/Documents/UNI/magistrale/BG/THESIS/Tesi ABB/zivid_captures/";
-  if (pcl::io::loadPLYFile<PointT> (path+std::string("zivid_manual_holefilling.ply"), *raw_cloud) == -1) //* load the file
+  if (pcl::io::loadPLYFile<PointT> (path+std::string("screws_ordered.ply"), *raw_cloud) == -1) //* load the file
   {
       PCL_ERROR ("Couldn't read the .PCD file\n");
       return (-1);
@@ -46,18 +46,48 @@ int main()
   std::cout<<std::endl<<"Loading time "<< watch.getTimeSeconds() << "seconds" <<std::endl;
 
   // START of Transform (better visualisation)
-  //Transformation using a Affine3f for BETTER VISUALIZATION of the PointCloud
-  Eigen::Affine3f visual_transform = Eigen::Affine3f::Identity();
+  /* Reminder: how transformation matrices work :
 
-  // Define a translation of 2.5 meters on the x axis.
-  visual_transform.translation() << 0.0, 0.0, 400.0;
-  // Define a 180° of rotation around X axis
-  float theta = M_PI; 
-  visual_transform.rotate (Eigen::AngleAxisf (theta, Eigen::Vector3f::UnitX()));
+           |-------> This column is the translation
+    | 1 0 0 x |  \
+    | 0 1 0 y |   }-> The identity 3x3 matrix (no rotation) on the left
+    | 0 0 1 z |  /
+    | 0 0 0 1 |    -> We do not use this line (and it has to stay 0,0,0,1)
 
+    METHOD #1: Using a Matrix4f
+    This is the "manual" method, perfect to understand but error prone !
+  */
+  Eigen::Matrix4f transform = Eigen::Matrix4f::Identity();
+
+  // Define a rotation matrix (see https://en.wikipedia.org/wiki/Rotation_matrix)
+  float t_g = M_PI/5.1; // 1- rotation around X axis (yaw)
+  float t_b = M_PI/18;      //2 - rotation around Y axis (pitch)
+  float t_a = 0;      //3 - rotation around Z axis (roll)
+
+  transform (0,0) = cos(t_a)*cos(t_b);
+  transform (0,1) = cos(t_a)*sin(t_b)*sin(t_g)-sin(t_a)*cos(t_g);
+  transform (0,2) = cos(t_a)*sin(t_b)*cos(t_g)+sin(t_a)*sin(t_g);
+
+  transform (1,0) = sin(t_a)*cos(t_b);
+  transform (1,1) = sin(t_a)*sin(t_b)*sin(t_g)+cos(t_a)*cos(t_g);
+  transform (1,2) = sin(t_a)*sin(t_b)*sin(t_g)-cos(t_a)*cos(t_g);
+
+  transform (2,0) = -sin(t_b);
+  transform (2,1) = cos(t_b)*sin(t_g);
+  transform (2,2) = cos(t_b)*cos(t_g);
+  // (row, column)
+
+  // Define a translation 
+  transform (2,3) = -500;
+  transform (1,3) = 350;
+
+  // Print the transformation
+  printf ("Method #1: using a Matrix4f\n");
+  std::cout << transform << std::endl;
+ 
   // Executing the transformation
   pcl::PointCloud<PointT>::Ptr t_raw_cloud (new pcl::PointCloud<PointT>);
-  pcl::transformPointCloud(*raw_cloud, *t_raw_cloud, visual_transform);
+  pcl::transformPointCloud(*raw_cloud, *t_raw_cloud, transform);
 
   *raw_cloud = *t_raw_cloud;  // Copy t_raw_cloud to raw_cloud to be processed and keep t_cloud as starting reference
   // END of Transform 
@@ -71,7 +101,7 @@ int main()
   // 1-VOXELIZE
   pcl::VoxelGrid<PointT> voxel_filter;
   voxel_filter.setInputCloud(raw_cloud);
-  voxel_filter.setLeafSize(0.4f,0.4f,0.4f);
+  voxel_filter.setLeafSize(1,1,1);
   voxel_filter.filter(*cloud);
   *raw_cloud = *cloud; //save to raw cloud for a new filter
 
@@ -79,7 +109,7 @@ int main()
   pcl::PassThrough<PointT> pass;
   pass.setInputCloud (raw_cloud);
   pass.setFilterFieldName ("z");
-  pass.setFilterLimits (-100, 100);
+  pass.setFilterLimits (0, 50);
   pass.filter (*cloud);
   *raw_cloud = *cloud; //save to raw cloud for a new filter
 
@@ -95,10 +125,13 @@ int main()
   
   std::cout<<std::endl<<"Filtering time "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
 
+  // Declare extraction pointer
+  pcl::ExtractIndices<PointT> extract;
 
   // START OF SEGMENTATION (1-Planar, 2-Cylindrical{TO DO!!} , ...)
   // 1-PLANAR SEGMENTATION
   // Declare segmentation pointers
+  /*
   pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
   pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
 
@@ -124,10 +157,7 @@ int main()
   seg.setOptimizeCoefficients(true);
   seg.setMaxIterations(100);
   //seg.setEpsAngle(theta_eps);
-  //seg.setAxis(plane_axis);
-
-  // Declare extraction pointer
-  pcl::ExtractIndices<PointT> extract; 
+  //seg.setAxis(plane_axis); 
 
   // Planar clustering loop
   //POSSIBLE UPGRADES:
@@ -184,7 +214,8 @@ int main()
   std::cout<< "Number of planes segmented: " << n_planes <<std::endl<<std::endl;
 
   std::cout<<std::endl<<"Planar segmentation time "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
-  
+  */
+
   // 2-CLUSTER EXTRACTION 
   // Creating the KdTree object for the search method of the extraction
   pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
@@ -192,9 +223,9 @@ int main()
 
   std::vector<pcl::PointIndices> cluster_indices;
   pcl::EuclideanClusterExtraction<PointT> ec;
-  ec.setClusterTolerance (0.6); 
-  ec.setMinClusterSize (2000);
-  ec.setMaxClusterSize (28000);
+  ec.setClusterTolerance (1); 
+  ec.setMinClusterSize (300);
+  ec.setMaxClusterSize (1800);
   ec.setSearchMethod (tree);
   ec.setInputCloud (cloud);
   ec.extract (cluster_indices);
@@ -204,7 +235,7 @@ int main()
   //Declare cloud vector, add each cluster to a new cloud vector slot
   //In visualization, generate a unique color for each cluster vector element 
   //and add to the visualizer
-
+  
   // Extract points and copy them to clouds vector -> v_segment_clouds
   std::vector< pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator<pcl::PointCloud<PointT>::Ptr> > v_segment_clouds;
   pcl::PointCloud<PointT>::Ptr curr_segment_cloud;
@@ -287,10 +318,10 @@ int main()
     seg2.setOptimizeCoefficients (true);
     seg2.setModelType (pcl::SACMODEL_CYLINDER);
     seg2.setMethodType (pcl::SAC_RANSAC);
-    seg2.setNormalDistanceWeight (0.1);
+    seg2.setNormalDistanceWeight (0.2);
     seg2.setMaxIterations (5000);
-    seg2.setDistanceThreshold (2);
-    seg2.setRadiusLimits (1,10);
+    seg2.setDistanceThreshold (1.5);
+    seg2.setRadiusLimits (1.5,8.5);
     seg2.setInputCloud (segment);
     seg2.setInputNormals (cloud_normals);
 
@@ -392,25 +423,14 @@ int main()
 
   // Visualization using PCLVisualizer
   pcl::visualization::PCLVisualizer viewer ("Cloud viewer");
-  
-  int v1(0);
-  viewer.createViewPort (0.0, 0.0, 0.5, 1.0, v1);
-  viewer.setBackgroundColor (0, 0, 0, v1);
-  viewer.addText ("Source point cloud",10,10,"v1 text", v1);
-  viewer.addPointCloud<PointT> (t_raw_cloud, "t_cloud", v1);
 
-  int v2(0);
-  viewer.createViewPort (0.5, 0.0, 1.0, 1.0, v2);
-  viewer.setBackgroundColor (0.3, 0.3, 0.3, v2);
-  viewer.addText ("Segmented point cloud", 10, 10, "v2 text", v2);
 
-  pcl::visualization::PointCloudColorHandlerCustom<PointT> pln_color (pln_cloud, 0, 255, 0);
-  
-  //add extracted plane point cloud (shown in green)
-  viewer.addPointCloud<PointT> (pln_cloud, pln_color, "pln_clouds", v2);
+  viewer.setBackgroundColor (0, 0, 0);
+  viewer.addText ("Source point cloud",10,10,"text");
+  viewer.addPointCloud<PointT> (cloud, "cloud");
 
   //add point clouds from the segmented clouds vector (shown in random colors)
-  std::stringstream cloud_name, centroid_text, centroid_sphere, cylinder_name, cyl_axis;
+  std::stringstream cloud_name, centroid_text, centroid_sphere, cylinder_name, cyl_primitive;
   int counter(0);
   int cyl_counter(0);
   pcl::RGB rgb;
@@ -420,14 +440,14 @@ int main()
       centroid_text.str("");
       centroid_sphere.str("");
       cylinder_name.str("");
-      cyl_axis.str("");
+      cyl_primitive.str("");
     
 
       cloud_name << "Segmentation " << counter;
       centroid_text <<"Cluster " <<counter;
       centroid_sphere <<"C" <<counter;
       cylinder_name <<"Cylinder" <<cyl_counter;
-      cyl_axis <<"cyl_axis "<<cyl_counter;
+      cyl_primitive <<"cyl_primitive "<<cyl_counter;
   
 
       // Generate unique colour
@@ -440,31 +460,30 @@ int main()
 
       if (cyl_found[counter] == 0) //add as cluster
       {
-        viewer.addText3D(centroid_text.str(),v_centroids[counter], 2.0, 0.0, 0.0, 0.0, centroid_text.str(), v2);
-        viewer.addSphere (v_centroids[counter], 2, 0, 0, 0,centroid_sphere.str(),v2);
+        viewer.addText3D(centroid_text.str(),v_centroids[counter], 2.0, 0.0, 0.0, 0.0, centroid_text.str());
+        viewer.addSphere (v_centroids[counter], 2, 0, 0, 0,centroid_sphere.str());
       }
       else //add as cylinder
       {
-        viewer.addText3D(cylinder_name.str(),v_centroids[counter], 2.0, 0.0, 0.0, 0.0, cylinder_name.str(), v2);
-        viewer.addCylinder(v_coefficients_cylinder[cyl_counter], cylinder_name.str(), v2);
+        viewer.addText3D(cylinder_name.str(),v_centroids[counter], 2.0, 0.0, 0.0, 0.0, cylinder_name.str());
+        viewer.addCylinder(v_coefficients_cylinder[cyl_counter], cyl_primitive.str());
         std::cout<<v_coefficients_cylinder[cyl_counter]<<std::endl;
         cyl_counter++;
       }
 
-      viewer.addPointCloud<PointT> (curr_cloud, colour_handle, cloud_name.str(),v2);
+      viewer.addPointCloud<PointT> (curr_cloud, colour_handle, cloud_name.str());
       viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, cloud_name.str());
       counter++;
   }  
 
   //add sphere in (0,0,0) with radius 500 for debugging filters
   //pcl::PointXYZ C(0,0,0);
-  //viewer.addSphere (C, 500, 0, 0, 0.5, "sphere",v2);
+  //viewer.addSphere (C, 500, 0, 0, 0.5, "sphere",);
   
   //visual utilities
-  viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "t_cloud");
-  viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "pln_clouds");
+  viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "cloud");
   
-  viewer.addCoordinateSystem (10);
+  viewer.addCoordinateSystem (100);
   viewer.setBackgroundColor(255, 255, 255); // Setting background color
 
   std::cout<<std::endl<<"Setting up visualization time: "<< watch.getTimeSeconds() << "seconds" <<std::endl<<std::endl;
