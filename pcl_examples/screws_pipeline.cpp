@@ -235,7 +235,7 @@ int main()
   //Declare cloud vector, add each cluster to a new cloud vector slot
   //In visualization, generate a unique color for each cluster vector element 
   //and add to the visualizer
-  
+
   // Extract points and copy them to clouds vector -> v_segment_clouds
   std::vector< pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator<pcl::PointCloud<PointT>::Ptr> > v_segment_clouds;
   pcl::PointCloud<PointT>::Ptr curr_segment_cloud;
